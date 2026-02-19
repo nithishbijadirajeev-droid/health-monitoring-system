@@ -1,37 +1,11 @@
-from flask import Flask, request, jsonify, render_template_string
-import psycopg2
+from flask import Flask, request, render_template_string
 import os
 import logging
-from datetime import datetime
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def get_db():
-    return psycopg2.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        database=os.getenv('DB_NAME', 'healthdb'),
-        user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres')
-    )
-
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS vitals (
-            id SERIAL PRIMARY KEY,
-            patient_name VARCHAR(100),
-            heart_rate INTEGER,
-            blood_pressure VARCHAR(20),
-            temperature FLOAT,
-            status VARCHAR(20),
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.commit()
-    cur.close()
-    conn.close()
+records = []
 
 HTML = '''
 <!DOCTYPE html>
@@ -52,11 +26,13 @@ HTML = '''
         .normal { color: green; font-weight: bold; }
         .warning { color: orange; font-weight: bold; }
         .critical { color: red; font-weight: bold; }
+        .badge { background: #e8f5e9; color: #2e7d32; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Health Monitoring System</h1>
+        <p style="text-align:center"><span class="badge">Live on Azure</span></p>
         <div class="form-box">
             <h3>Submit Patient Vitals</h3>
             <form method="POST" action="/submit">
@@ -69,15 +45,14 @@ HTML = '''
         </div>
         <h3>Patient Records</h3>
         <table>
-            <tr><th>Patient</th><th>Heart Rate</th><th>Blood Pressure</th><th>Temperature</th><th>Status</th><th>Time</th></tr>
+            <tr><th>Patient</th><th>Heart Rate</th><th>Blood Pressure</th><th>Temperature</th><th>Status</th></tr>
             {% for row in records %}
             <tr>
-                <td>{{ row[1] }}</td>
-                <td>{{ row[2] }} bpm</td>
-                <td>{{ row[3] }}</td>
-                <td>{{ row[4] }} F</td>
-                <td class="{{ row[5] }}">{{ row[5].upper() }}</td>
-                <td>{{ row[6].strftime("%Y-%m-%d %H:%M") }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.hr }} bpm</td>
+                <td>{{ row.bp }}</td>
+                <td>{{ row.temp }} F</td>
+                <td class="{{ row.status }}">{{ row.status.upper() }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -88,15 +63,6 @@ HTML = '''
 
 @app.route('/')
 def index():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute('SELECT * FROM vitals ORDER BY timestamp DESC LIMIT 20')
-        records = cur.fetchall()
-        cur.close()
-        conn.close()
-    except:
-        records = []
     return render_template_string(HTML, records=records)
 
 @app.route('/submit', methods=['POST'])
@@ -105,20 +71,15 @@ def submit():
     hr = int(request.form['heart_rate'])
     bp = request.form['blood_pressure']
     temp = float(request.form['temperature'])
-    if hr < 60 or hr > 100 or temp > 99.5:
-        status = 'critical' if hr > 120 or temp > 103 else 'warning'
+    if hr > 120 or temp > 103:
+        status = 'critical'
+    elif hr < 60 or hr > 100 or temp > 99.5:
+        status = 'warning'
     else:
         status = 'normal'
-    app.logger.info(f"Patient {name} submitted vitals - Status: {status}")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute('INSERT INTO vitals (patient_name, heart_rate, blood_pressure, temperature, status) VALUES (%s, %s, %s, %s, %s)',
-                (name, hr, bp, temp, status))
-    conn.commit()
-    cur.close()
-    conn.close()
+    app.logger.info(f"Patient {name} - HR:{hr} BP:{bp} Temp:{temp} Status:{status}")
+    records.append({'name': name, 'hr': hr, 'bp': bp, 'temp': temp, 'status': status})
     return index()
 
 if __name__ == '__main__':
-    init_db()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
