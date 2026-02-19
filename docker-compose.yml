@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: healthdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      DB_HOST: db
+      DB_NAME: healthdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
